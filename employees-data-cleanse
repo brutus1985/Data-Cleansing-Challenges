@@ -1,0 +1,157 @@
+###########################################
+
+Task: Employee Timesheet Data Processing
+You're helping a small company process their weekly timesheets that employees have submitted in different formats.
+
+DATASET - employees.csv
+
+Employee Name,Department,Start Time,End Time,Break Minutes,Date
+john doe,hr,9:00,17:30,60,2024-01-15
+SARAH SMITH,MARKETING,08:45,18:00,45,15/01/2024
+Mike Johnson,it,9:15 AM,5:45 PM,30,Jan 15 2024
+lisa brown,HR,09:00,17:15,90,2024-01-15
+David Wilson,marketing,8:30,17:00,60,15-01-2024
+EMMA DAVIS,IT,09:30,18:30,45,2024/01/15
+
+Your challenges:
+
+- Standardize employee names - Proper case format
+- Fix departments - Consistent format (your choice: uppercase, title case, etc.)
+- Standardize dates - Convert all to YYYY-MM-DD format
+- Convert times to 24-hour format - Handle both 12hr (AM/PM) and 24hr inputs
+- Calculate worked hours - New column: total hours worked (excluding breaks)
+- Add pay calculations:
+
+  Regular hours (up to 8 hours at £12/hour)
+  Overtime hours (over 8 hours at £18/hour)
+  Total daily pay
+
+Bonus challenges:
+
+Flag any suspicious entries (like negative hours or breaks longer than work time)
+Calculate average hours worked by department
+Create a payroll summary
+
+##########################################################
+
+import pandas as pd
+import re
+
+# Read the CSV
+df = pd.read_csv('/content/drive/My Drive/employees.csv')
+
+print("Original data:")
+print(df)
+print("\n" + "="*60 + "\n")
+
+# 1. Standardize employee names - Proper case
+df['Employee Name'] = df['Employee Name'].str.title().str.strip()
+
+# 2. Fix departments - Consistent format (Title Case)
+df['Department'] = df['Department'].str.title().str.strip()
+
+# 3. Standardize dates
+def parse_date(date_str):
+    formats = ['%Y-%m-%d', '%d/%m/%Y', '%b %d %Y', '%d-%m-%Y', '%Y/%m/%d']
+    for fmt in formats:
+        try:
+            return pd.to_datetime(date_str, format=fmt)
+        except ValueError:
+            continue
+    return pd.NaT
+
+df['Date'] = df['Date'].apply(parse_date)
+df['Date'] = df['Date'].dt.strftime('%Y-%m-%d')
+
+# 4. Convert times to 24-hour format
+def convert_to_24hr(time_str):
+    time_str = str(time_str).strip()
+    
+    # Try 12-hour format first (with AM/PM)
+    try:
+        return pd.to_datetime(time_str, format='%I:%M %p').strftime('%H:%M')
+    except ValueError:
+        pass
+    
+    # Try 24-hour format (already correct)
+    try:
+        return pd.to_datetime(time_str, format='%H:%M').strftime('%H:%M')
+    except ValueError:
+        pass
+    
+    return time_str
+
+df['Start Time'] = df['Start Time'].apply(convert_to_24hr)
+df['End Time'] = df['End Time'].apply(convert_to_24hr)
+
+# 5. Calculate worked hours using simple time arithmetic
+def time_to_decimal_hours(time_str):
+    """Convert HH:MM to decimal hours (e.g., 9:30 = 9.5)"""
+    hours, minutes = map(int, time_str.split(':'))
+    return hours + (minutes / 60)
+
+df['Start Hours'] = df['Start Time'].apply(time_to_decimal_hours)
+df['End Hours'] = df['End Time'].apply(time_to_decimal_hours)
+
+# Calculate total hours worked (excluding breaks)
+df['Hours Worked'] = df['End Hours'] - df['Start Hours'] - (df['Break Minutes'] / 60)
+
+# 6. Calculate pay (£12/hour regular, £18/hour overtime after 8 hours)
+def calculate_pay(hours_worked):
+    if hours_worked <= 8:
+        regular_hours = hours_worked
+        overtime_hours = 0
+    else:
+        regular_hours = 8
+        overtime_hours = hours_worked - 8
+    
+    regular_pay = regular_hours * 12
+    overtime_pay = overtime_hours * 18
+    total_pay = regular_pay + overtime_pay
+    
+    return pd.Series({
+        'Regular Hours': regular_hours,
+        'Overtime Hours': overtime_hours,
+        'Regular Pay': regular_pay,
+        'Overtime Pay': overtime_pay,
+        'Total Pay': total_pay
+    })
+
+# Apply pay calculations
+pay_data = df['Hours Worked'].apply(calculate_pay)
+df = pd.concat([df, pay_data], axis=1)
+
+# 7. Data validation - flag suspicious entries
+df['Suspicious'] = (
+    (df['Hours Worked'] < 0) |  # Negative hours
+    (df['Hours Worked'] > 12) |  # Very long days
+    (df['Break Minutes'] > df['Hours Worked'] * 60)  # Break longer than work time
+)
+
+print("Cleaned and processed timesheet data:")
+print(df[['Employee Name', 'Department', 'Date', 'Start Time', 'End Time', 
+         'Hours Worked', 'Total Pay', 'Suspicious']])
+
+print("\n" + "="*60 + "\n")
+
+# Summary report
+print("TIMESHEET PROCESSING SUMMARY")
+print("="*40)
+print(f"Total employees processed: {len(df)}")
+print(f"Average hours worked: {df['Hours Worked'].mean():.2f}")
+print(f"Total payroll: £{df['Total Pay'].sum():.2f}")
+print(f"Employees with overtime: {(df['Overtime Hours'] > 0).sum()}")
+print(f"Suspicious entries flagged: {df['Suspicious'].sum()}")
+
+print("\nPayroll by department:")
+dept_summary = df.groupby('Department').agg({
+    'Hours Worked': 'sum',
+    'Total Pay': 'sum',
+    'Employee Name': 'count'
+}).round(2)
+dept_summary.columns = ['Total Hours', 'Total Pay', 'Employee Count']
+print(dept_summary)
+
+# Save the processed data
+df.to_csv('/content/drive/My Drive/timesheets_processed.csv', index=False)
+print(f"\nProcessed data saved to 'timesheets_processed.csv'")
