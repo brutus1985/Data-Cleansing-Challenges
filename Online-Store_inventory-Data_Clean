@@ -1,0 +1,111 @@
+Task: Online Store Inventory Management
+
+You're helping an e-commerce business clean up their product inventory data that's been collected from multiple sources (suppliers, warehouse systems, manual entry).
+
+Your challenges:
+
+Clean SKUs - Ensure consistent format (uppercase, no spaces) Standardize product names - Proper case, remove extra spaces Fix categories - Consistent capitalization and spelling Standardize supplier names - Proper case, handle duplicates/variations Clean prices - Remove £ symbols, ensure all are numbers for calculations Standardize dates - Convert all to YYYY-MM-DD format Add calculated columns:
+
+Profit per item (selling price - cost price) Total inventory value (quantity × cost price) Stock status ("High Stock" >100, "Medium Stock" 10-100, "Low Stock" 1-9, "Out of Stock" 0)
+
+Bonus challenges:
+
+Flag products with suspicious profit margins (negative profit or >500% markup) Create a supplier summary showing total inventory value by supplier Identify duplicate products (same name, different SKU)
+
+# Import Pandas and Datetime
+import pandas as pd
+from datetime import datetime
+from google.colab import drive
+drive.mount('/content/drive')
+
+# Read the CSV from Google Drive
+df = pd.read_csv('/content/drive/MyDrive/inventory.csv')
+
+# Clean SKU's
+df['SKU'] = df['SKU'].str.upper().str.replace(' ', '') 
+
+# Standardise product name - Title case - remove extra spaces
+df['Product Name'] = df['Product Name'].str.title().str.strip()
+
+# Fix categories - Title case - strip
+df['Category'] = df['Category'].str.title().str.strip()
+
+# Sort supply list
+def clean_supplier(supplier):
+    supplier = str(supplier).strip().lower()
+    if supplier == 'sportsupply':
+        return 'Sports Supply'
+    elif supplier == 'sportssupply':
+        return 'Sports Supply'
+    elif supplier == 'techcorp ltd':
+        return 'TechCorp Ltd'
+    elif supplier == 'audioworld':
+        return 'AudioWorld'
+    else:
+        return supplier.title()
+
+df['Supplier'] = df['Supplier'].apply(clean_supplier)
+
+# Clean Cost Prices - remove symbols - ensure numbers can be used for calcs.
+df['Cost Price'] = df['Cost Price'].replace('£', '', regex=True)
+df['Cost Price']  = pd.to_numeric(df['Cost Price'], errors='coerce').round(2)
+
+# Clean Selling Prices - remove symbols - ensure numbers can be used for calcs.
+df['Selling Price'] = df['Selling Price'].replace('£', '', regex=True)
+df['Selling Price']  = pd.to_numeric(df['Selling Price'], errors='coerce').round(2)
+
+def parse_date(date_str):
+    formats = ['%Y-%m-%d', '%d/%m/%Y', '%b %d %Y', '%d-%m-%Y', '%Y/%m/%d']
+    for fmt in formats:
+        try:
+            return pd.to_datetime(date_str, format=fmt)
+        except ValueError:
+            continue
+    return pd.NaT
+
+df['Last Restocked'] = df['Last Restocked'].apply(parse_date)
+df['Last Restocked'] = df['Last Restocked'].dt.strftime('%Y-%m-%d')
+
+# Profit per item (selling price - cost price)
+df['Profit per Item'] = df['Selling Price'] - df['Cost Price']
+
+# Total inventory value (quantity × cost price)
+df['Total Inventory Value'] = df['Quantity'] * df['Cost Price']
+
+# Stock status ("High Stock" >100, "Medium Stock" 10-100, "Low Stock" 1-9, "Out of Stock" 0)
+def stock_status(quantity):
+  if quantity > 100:
+    return 'High Stock'
+  elif quantity >= 10 and quantity <= 100:
+    return 'Medium Stock'
+  elif quantity >= 1 and quantity <= 9:
+    return 'Low Stock'
+  else:
+    return 'Out of Stock'
+  
+df['Stock Status'] = df['Quantity'].apply(stock_status)
+
+df['Suspicious'] = (
+    (df['Profit per Item'] < 0) |  # Negative Profit
+    (df['Selling Price'] > (500 * df['Cost Price']))  # >500% Markup
+)
+
+# Create and save a summary report
+summary_stats = {
+    'Total Products': len(df),
+    'Total Inventory Value': f"£{df['Total Inventory Value'].sum():,.2f}",
+    'Average Profit Margin': f"{df['Profit per Item'].mean():.2f}",
+    'Suspicious Products': df['Suspicious'].sum(),
+    'Out of Stock Items': (df['Stock Status'] == 'Out of Stock').sum(),
+    'Unique Suppliers': df['Supplier'].nunique()
+}
+
+print("="*50)
+print("INVENTORY CLEANING COMPLETED")
+print("="*50)
+for key, value in summary_stats.items():
+    print(f"{key}: {value}")
+
+print(f"\nCleaned dataset saved to: inventory_cleaned.csv")
+print(f"Original dataset had: {len(df)} products")
+print("="*50)
