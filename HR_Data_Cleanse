@@ -1,0 +1,132 @@
+You're helping an HR department clean up their quarterly performance and payroll data that's been collected from multiple systems (HRIS, timesheets, performance reviews).
+
+hr_data.csv
+
+Employee ID,Full Name,Department,Job Title,Hire Date,Annual Salary,Performance Score,Hours This Quarter,Overtime Hours,Manager,Email
+EMP001,john smith,sales,Sales Representative,2022-03-15,£35000,8.5,520,25,Sarah Johnson,johnsmith@company.com
+EMP002,  MARY WILLIAMS-JONES  ,MARKETING,marketing manager,15/03/2021,55000,9.2,480,0,sarah johnson,mary.williams@company.co.uk
+EMP003,Bob Chen,IT,Senior Developer,Mar 15 2020,£68,000,7.8,510,15,Mike Roberts,bob.chen@company.com
+EMP004,lisa brown,Sales,sales rep,2023-01-10,£32000,6.5,495,-5,Sarah Johnson,lisa.brown@company.com
+EMP005,David Wilson-Smith,it,IT Support Specialist,10-01-2019,£42,500,8.9,520,30,mike roberts,d.wilson@company.com
+EMP006,   Emma Davis   ,HR,hr coordinator,2021/03/15,38000,9.1,500,10,Jennifer Lee,emma.davis@company.co.uk
+
+Your challenges:
+
+Clean employee names - Proper case, handle hyphenated names correctly
+Standardize departments - Consistent format and handle variations
+Fix job titles - Proper case, standardize common variations
+Standardize dates - Convert all hire dates to YYYY-MM-DD
+Clean salaries - Remove £ and commas, ensure numeric for calculations
+Validate performance scores - Should be 1-10, flag anything outside this range
+Calculate quarterly pay - Based on hours worked and hourly rate from annual salary
+Data quality checks:
+
+#########################################################
+
+import pandas as pd
+import numpy as np
+from io import StringIO
+import re
+
+# Read and fix the CSV manually
+with open('hr_data.csv', 'r') as file:
+    content = file.read()
+
+# Fix the problematic commas in salary fields
+content = content.replace('£68,000', '£68000')
+content = content.replace('£42,500', '£42500')
+
+# Now parse the fixed content
+df = pd.read_csv(StringIO(content))
+
+# Task 1 - Clean Names
+df['Full Name'] = df['Full Name'].astype(str).str.title().str.strip()
+
+#####################################################################
+
+# Task 2 - Standardize departments
+def clean_department(department):
+    if len(department) == 2:
+        return department.upper()
+    else:
+        return department.title()
+
+df['Department'] = df['Department'].apply(clean_department)
+print(df['Department'])
+
+#####################################################################
+
+# Task 3 - Fix job titles
+df['Job Title'] = df['Job Title'].astype(str)
+def clean_job_titles(title):
+    title = str(title).strip()
+    title = title.title()
+    title = re.sub(r'\bhr\b', 'HR', title, flags=re.IGNORECASE)
+    title = re.sub(r'\bIT\b', 'IT', title, flags=re.IGNORECASE)
+    return title
+
+df['Job Title'] = df['Job Title'].apply(clean_job_titles)
+
+# Task 4 - Standardize dates
+def parse_date(date_str):
+    formats = ['%Y-%m-%d', '%d/%m/%Y', '%b %d %Y', '%d-%m-%Y', '%Y/%m/%d']
+    for fmt in formats:
+        try:
+            return pd.to_datetime(date_str, format=fmt)
+        except ValueError:
+            continue
+    return pd.NaT
+
+df['Hire Date'] = df['Hire Date'].apply(parse_date)
+df['Hire Date'] = df['Hire Date'].dt.strftime('%Y-%m-%d')
+
+# Task 5 - Clean salaries
+
+df['Annual Salary'] = df['Annual Salary'].replace('£', '', regex=True)
+df['Annual Salary']  = pd.to_numeric(df['Annual Salary'], errors='coerce').round(2)
+
+# Task 6 - Validate performance scores - Check they're all 1-10
+
+def check_performance(score):
+    if 1 <= score <= 10:
+        return 'Satisfactory'
+    else:
+        return 'No Data Held'
+
+df['Satisfactory Performance'] = df['Performance Score'].apply(check_performance)
+
+# Task 7 - Calculate quarterly pay and overtime
+STANDARD_ANNUAL_HOURS = 2000  # 40 hours/week × 50 weeks
+STANDARD_QUARTERLY_HOURS = 520  # 13 weeks × 40 hours
+OVERTIME_MULTIPLIER = 1.5
+
+# Calculate hourly rate from annual salary
+df['Hourly Rate'] = df['Annual Salary'] / STANDARD_ANNUAL_HOURS
+
+# Calculate regular and overtime hours
+df['Regular Hours'] = df['Hours This Quarter'].apply(lambda x: min(x, STANDARD_QUARTERLY_HOURS))
+df['Calculated Overtime'] = df['Hours This Quarter'].apply(lambda x: max(0, x - STANDARD_QUARTERLY_HOURS))
+
+# Calculate pay
+df['Regular Pay'] = df['Regular Hours'] * df['Hourly Rate']
+df['Overtime Pay'] = df['Calculated Overtime'] * df['Hourly Rate'] * OVERTIME_MULTIPLIER
+df['Total Quarterly Pay'] = df['Regular Pay'] + df['Overtime Pay']
+
+# Task 8 - Add data quality flags
+df['Data Quality Issues'] = ''
+
+# Flag negative overtime
+df.loc[df['Overtime Hours'] < 0, 'Data Quality Issues'] += 'Negative Overtime; '
+
+# Flag unusual hours (under 400 or over 600)
+df.loc[df['Hours This Quarter'] < 400, 'Data Quality Issues'] += 'Low Hours; '
+df.loc[df['Hours This Quarter'] > 600, 'Data Quality Issues'] += 'High Hours; '
+
+# Flag performance issues
+df.loc[df['Performance Score'] < 7.0, 'Data Quality Issues'] += 'Performance Review Needed; '
+
+# Clean up trailing semicolons
+df['Data Quality Issues'] = df['Data Quality Issues'].str.rstrip('; ')
+df.loc[df['Data Quality Issues'] == '', 'Data Quality Issues'] = 'No Issues'
+
+print(df)
